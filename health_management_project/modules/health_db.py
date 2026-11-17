@@ -46,8 +46,10 @@ class HealthDB:
 if __name__ == "__main__":
     # 리스트에 딕셔너리 형태로 사람 구별 
     records = [
-        {"name": "김철수", "height": 175.0, "weight": 70.0},
-        {"name": "이영희", "height": 162.0, "weight": 55.0}
+        #P2026-0001,홍길동,1995,남,175.0,72.5,23.67,과체중
+        #P2026-0002,김영희,1998,여,162.0,52.0,19.81,정상
+        {"id": "P2026-0001", "name": "홍길동", "birth_year": 1995, "gender": "남", "height": 175.0, "weight": 72.5, "bmi": 23.67, "status": "과체중"},
+        {"id": "P2026-0002", "name": "김영희", "birth_year": 1998, "gender": "여", "height": 162.0, "weight": 52.0, "bmi": 19.81, "status": "정상"}
     ]
 
     print("원본 데이터:", records)
@@ -85,3 +87,7 @@ if __name__ == "__main__":
     for file_type, loaded in results.items():
         print(f"\n{file_type}에서 읽은 데이터:", loaded)
         print("원본과 일치:", records == loaded)
+
+
+
+# 코드 매일 보완 및 수정 필요

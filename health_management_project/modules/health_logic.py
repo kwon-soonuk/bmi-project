@@ -186,9 +186,9 @@ def print_table(records):
     if not records:
         print("등록된 정보가 없습니다.")
         return
-    print(f"{'ID':<12} {'이름':<8} {'생년':<6} {'성별':<4} {'키':>8} {'몸무게':>8} {'BMI':>8} {'상태':<8}")
+    print(f"{'ID':<12} {'이름':<8} {'생년':<6} {'성별':<4} {'키':>8} {'몸무게':>8} {'BMI':>8}       {'상태':<8}")
     for r in records:
-        print(f"{r.id:<12} {r.name:<8} {r.birth_year:<6} {r.gender:<4} {r.height:>8.1f} {r.weight:>8.1f} {r.bmi:>8.2f} {r.status:<8}")
+        print(f"{r.id:<12} {r.name:<8} {r.birth_year:<6}   {r.gender:<4}   {r.height:>8.1f}   {r.weight:>8.1f}   {r.bmi:>8.2f}   {r.status:<8}")
 
 def print_detail(record):
     """레코드 1개의 모든 항목을 세로로 출력한다. (상세조회)"""

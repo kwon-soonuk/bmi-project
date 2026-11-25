@@ -56,10 +56,10 @@ def dict_to_record(data):
 
 class HealthDB:
     def __init__(self):
-        self.json_file = "health_management_project\\data.health_data.json"
-        self.csv_file = "health_management_project\\data.health_data.csv"
-        self.txt_file = "health_management_project\\data.health_data.txt"
-        self.pkl_file = "health_management_project\\data.health_data.pkl"
+        self.json_file = "health_management_project\\data\\health_data.json"
+        self.csv_file = "health_management_project\\data\\health_data.csv"
+        self.txt_file = "health_management_project\\data\\health_data.txt"
+        self.pkl_file = "health_management_project\\data\\health_data.pkl"
         
     def load_data(self):
         with open(self.json_file, "r", encoding="utf-8") as jf:

@@ -8,6 +8,9 @@
 #                     · 화면 꾸미기(색·글꼴 상수, make_button / make_entry / make_stat_card,
 #                       표 스타일, 통계 카드, 차트 색)
 #                     · 어려운 코드를 수업에서 배운 수준의 쉬운 코드로 바꿔 쓰기
+#                  → 프롬프트 (5)에서는 AI가 화면을 평가하고 사용성 보완 코드를 직접 작성:
+#                     · 화면 전환 탭(기록/통계), 상태 표시줄(건수·저장 여부), 폼의 모드 표시,
+#                       선택한 행 강조, 통계의 표준편차·비율 표시, 엔터 키 처리
 #  - 사용 프롬프트 :
 #      (1) "개인프로젝트 모듈3 작성을할거야 구상안에서 피드백 받은 내용은 조회하면서 수정과 삭제를
 #           할 수 있도록, 지금은 스마트폰 화면처럼 창을 메뉴마다 바뀌는걸 최소화할거야 우리가 하던
@@ -18,6 +21,11 @@
 #      (3) "확인해봐", "다시 확인하고 문제 없으면 마무리" → 채점 결과 확인과 힌트 주석 정리만 받음
 #      (4) "figma와 디자인 관련 스킬 활용해서 프로그램 조금 꾸며봐 코드들중에 시니어 이상의 수준인
 #           코드가 있다면 대학생 입장에서 작성한 수준으로 낮춰줘"
+#      (5) "지금 gui어떤지 평가하고 보완하자 물론 과제 조건은 지켜야해 작업은 바로 적용하지말고
+#           임시폴더 하나 만들어서 거기서 작업해"
+#      (6) "확인 필요한 1번 파일 없거나 손상시 예외처리 그냥 추가하는건 어때?"
+#          "진행방식 1번으로해 작성, 테스트, 적용까지하면 내가 main에병합할게"
+#          → AI가 on_load / on_save 를 모듈1의 새 예외 처리 방식(빈 리스트, True/False)에 맞춰 수정 (2026-11-26)
 #  - AI 추가 사용 기록 : OpenAI Codex로 GUI 색상·배치 적용 및 통계 화면 전환 구현
 #    요청: "지금 gui파일 수정해야해 ... 통계부분을 다른창에 볼 수 있으면 좋겠어 버튼누르면 창 바뀌게"
 #  - 사용한 사람 : 권순욱 (202611814)
@@ -26,7 +34,8 @@
 """모듈3: 한 창에서 기록 화면과 전체 통계 화면을 전환하는 Tkinter GUI.
 
 - 기록 화면: 입력 폼과 조회 표를 나란히 두어 선택한 기록을 바로 수정·삭제한다.
-- 통계 화면: 총 인원, 평균 키·몸무게·BMI, BMI 상태별 인원을 보여 준다.
+- 통계 화면: 총 인원, 평균·표준편차(키·몸무게·BMI), BMI 상태별 인원을 보여 준다.
+- 맨 위 [기록] [통계] 탭으로 화면을 바꾸고, 맨 아래 상태 표시줄에 건수와 저장 여부를 보여 준다.
 - 데이터 처리는 모듈2 HealthManager, 파일은 모듈1 HealthDB 의 메소드를 부른다.
 - 수정은 키·몸무게만 가능하며 파일 저장은 [저장] 버튼으로 한다.
 """
@@ -58,7 +67,8 @@ LINE = "#D6E2DA"        # 테두리
 GRAY = "#EAF0EB"        # 보조 버튼, 잠긴 입력칸
 STRIPE = "#F4F8F5"      # 표의 줄무늬, 통계 카드
 ACCENT = "#176455"      # 기본 동작
-SELECTED = "#E6F2EB"    # 선택한 행과 BMI 결과 바탕
+SELECTED = "#E6F2EB"    # BMI 결과, 모드 표시 바탕
+SELECTED_ROW = "#BFDDCD"  # 표에서 선택한 행 (줄무늬와 헷갈리지 않게 더 진한 색)
 DANGER = "#9E4037"      # 삭제 글자
 STATUS_COLORS = {"저체중": "#355F73", "정상": "#176455", "과체중": "#7B5719", "비만": "#9E4037"}
 
@@ -77,7 +87,7 @@ class HealthGUI:
         self.root = root
         self.root.title("BMI 건강관리 프로그램")
         self.root.geometry("1060x700")
-        self.root.minsize(940, 600)
+        self.root.minsize(940, 680)
         self.root.configure(bg=BG)
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(1, weight=1)
@@ -85,6 +95,7 @@ class HealthGUI:
         self.db = HealthDB()
         self.manager = HealthManager()
         self.selected_id = None     # 지금 폼에 띄운 사람의 식별번호 (None 이면 신규 모드)
+        self.changed = False        # 저장하지 않은 변경이 있으면 True
 
         self.build_file_bar()
         self.records_page = tk.Frame(self.root, bg=BG)
@@ -94,9 +105,11 @@ class HealthGUI:
         self.build_form()
         self.build_table()
         self.build_stats()
+        self.build_status_bar()
 
         self.clear_form()
         self.refresh()
+        self.set_changed(False)
         self.on_load(quiet=True)
 
     def make_button(self, parent, text, color, command):
@@ -112,6 +125,14 @@ class HealthGUI:
                            padx=12, pady=5, cursor="hand2")
         return button
 
+    def paint_button(self, button, color):
+        """버튼 배경색을 color 로 바꾸고 글자색을 거기에 맞춘다. (회색이면 어두운 글자, 아니면 흰 글자)"""
+        if color == GRAY:
+            text_color = TEXT
+        else:
+            text_color = "white"
+        button.config(bg=color, fg=text_color, activebackground=color, activeforeground=text_color)
+
     def make_entry(self, parent, width):
         """입력칸을 만들고 포커스가 있을 때 강조색 테두리를 표시한다."""
         entry = tk.Entry(parent, width=width, font=FONT, relief="flat", bg=CARD, fg=TEXT,
@@ -120,10 +141,16 @@ class HealthGUI:
         return entry
 
     def build_file_bar(self):
-        """두 화면에서 공통으로 쓰는 제목과 파일 작업 버튼."""
+        """두 화면에서 공통으로 쓰는 제목, 화면 전환 탭, 파일 작업 버튼."""
         bar = tk.Frame(self.root, bg=CARD, padx=24, pady=14)
         bar.grid(row=0, column=0, sticky="we")
         tk.Label(bar, text="BMI 건강관리 프로그램", bg=CARD, fg=TEXT, font=FONT_TITLE).pack(side="left")
+
+        # 화면 전환 탭: 지금 보고 있는 화면의 탭만 강조색이다 (show_records / show_stats 가 색을 바꾼다)
+        self.btn_records = self.make_button(bar, "기록", ACCENT, self.show_records)
+        self.btn_records.pack(side="left", padx=(24, 0))
+        self.btn_stats = self.make_button(bar, "통계", GRAY, self.show_stats)
+        self.btn_stats.pack(side="left", padx=(4, 0))
 
         # side="right" 는 먼저 pack 한 것이 가장 오른쪽에 간다
         self.btn_import = self.make_button(bar, "CSV 일괄 등록", GRAY, self.on_import_csv)
@@ -140,30 +167,34 @@ class HealthGUI:
         tk.Label(bar, text="파일 형식", bg=CARD, fg=SUBTEXT, font=FONT).pack(side="right")
 
     def build_form(self):
-        """① 왼쪽 입력 폼: 식별번호(표시만) / 이름 / 생년 / 성별 / 키 / 몸무게 / BMI 결과 / 버튼 4개."""
+        """① 왼쪽 입력 폼: 모드 표시 / 식별번호(표시만) / 이름 / 생년 / 성별 / 키 / 몸무게 / BMI 결과 / 버튼 4개."""
         form = tk.LabelFrame(self.records_page, text=" 기록 입력 ", bg=CARD, fg=TEXT, font=FONT_TITLE,
                              bd=0, highlightthickness=1, highlightbackground=LINE, highlightcolor=LINE,
                             padx=16, pady=16)
         form.grid(row=0, column=0, sticky="nsew", padx=(24, 8), pady=16)
 
-        # 0열: 항목 이름
-        row = 0
+        # 0행: 지금 폼이 어떤 모드인지 보여 준다 (set_mode 가 글자를 바꾼다)
+        self.lbl_mode = tk.Label(form, text="신규 등록", bg=SELECTED, fg=ACCENT, font=FONT_BOLD, padx=8, pady=2)
+        self.lbl_mode.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        # 0열: 항목 이름 (1행부터)
+        row = 1
         for text in ("식별번호", "이름", "생년", "성별", "키(cm)", "몸무게(kg)"):
-            tk.Label(form, text=text, bg=CARD, fg=SUBTEXT, font=FONT).grid(row=row, column=0, sticky="w", pady=8)
+            tk.Label(form, text=text, bg=CARD, fg=SUBTEXT, font=FONT).grid(row=row, column=0, sticky="w", pady=7)
             row += 1
 
         # 1열: 값 (식별번호는 입력칸이 아니라 보여 주기만 한다)
         self.lbl_id = tk.Label(form, text="(자동 발급)", bg=CARD, fg=ACCENT, font=FONT_BOLD)
-        self.lbl_id.grid(row=0, column=1, sticky="w", padx=(12, 0))
+        self.lbl_id.grid(row=1, column=1, sticky="w", padx=(12, 0))
 
         self.entry_name = self.make_entry(form, 16)
-        self.entry_name.grid(row=1, column=1, sticky="w", padx=(12, 0), ipady=3)
+        self.entry_name.grid(row=2, column=1, sticky="w", padx=(12, 0), ipady=3)
         self.entry_birth = self.make_entry(form, 16)
-        self.entry_birth.grid(row=2, column=1, sticky="w", padx=(12, 0), ipady=3)
+        self.entry_birth.grid(row=3, column=1, sticky="w", padx=(12, 0), ipady=3)
 
         self.gender_var = tk.StringVar(value="남")
         gender_frame = tk.Frame(form, bg=CARD)
-        gender_frame.grid(row=3, column=1, sticky="w", padx=(8, 0))
+        gender_frame.grid(row=4, column=1, sticky="w", padx=(8, 0))
         self.radio_male = tk.Radiobutton(gender_frame, text="남", value="남", variable=self.gender_var,
                                          bg=CARD, activebackground=CARD, font=FONT)
         self.radio_male.pack(side="left")
@@ -172,17 +203,17 @@ class HealthGUI:
         self.radio_female.pack(side="left")
 
         self.entry_height = self.make_entry(form, 16)
-        self.entry_height.grid(row=4, column=1, sticky="w", padx=(12, 0), ipady=3)
+        self.entry_height.grid(row=5, column=1, sticky="w", padx=(12, 0), ipady=3)
         self.entry_weight = self.make_entry(form, 16)
-        self.entry_weight.grid(row=5, column=1, sticky="w", padx=(12, 0), ipady=3)
+        self.entry_weight.grid(row=6, column=1, sticky="w", padx=(12, 0), ipady=3)
 
         # BMI 결과: 선택한 사람의 BMI 와 상태를 상태 색으로 보여 준다
         self.lbl_result = tk.Label(form, text="BMI -", bg=SELECTED, fg=SUBTEXT, font=FONT_BIG, pady=8)
-        self.lbl_result.grid(row=6, column=0, columnspan=2, sticky="we", pady=(16, 8))
+        self.lbl_result.grid(row=7, column=0, columnspan=2, sticky="we", pady=(16, 8))
 
         # 버튼 2 x 2
         buttons = tk.Frame(form, bg=CARD)
-        buttons.grid(row=7, column=0, columnspan=2)
+        buttons.grid(row=8, column=0, columnspan=2)
         self.btn_add = self.make_button(buttons, "등록", ACCENT, self.on_add)
         self.btn_add.grid(row=0, column=0, padx=3, pady=3, sticky="we")
         self.btn_update = self.make_button(buttons, "수정", ACCENT, self.on_update)
@@ -195,8 +226,13 @@ class HealthGUI:
         for button in (self.btn_add, self.btn_update, self.btn_delete, self.btn_new):
             button.config(width=9)      # 네 버튼의 폭을 같게
 
-        tk.Label(form, text="표에서 행을 클릭하면\n수정·삭제할 수 있습니다.", bg=CARD, fg=SUBTEXT,
-                 font=("맑은 고딕", 9), justify="center").grid(row=8, column=0, columnspan=2, pady=(8, 0))
+        # 모드에 따라 바뀌는 안내 문장 (set_mode 가 글자를 바꾼다)
+        self.lbl_hint = tk.Label(form, text="", bg=CARD, fg=SUBTEXT, font=("맑은 고딕", 9), justify="center")
+        self.lbl_hint.grid(row=9, column=0, columnspan=2, pady=(8, 0))
+
+        # 입력칸에서 엔터를 누르면 등록(신규 모드) 또는 수정(선택 모드)
+        for entry in (self.entry_name, self.entry_birth, self.entry_height, self.entry_weight):
+            entry.bind("<Return>", self.on_form_enter)
 
     def build_table(self):
         """② 오른쪽 조회 구역: 검색 줄 + Treeview 표 + 세로 스크롤바 + 행 선택 이벤트."""
@@ -213,8 +249,6 @@ class HealthGUI:
         self.entry_search.bind("<Return>", self.on_search)      # 엔터로도 검색
         self.make_button(search_frame, "검색", GRAY, self.on_search).pack(side="left", padx=(8, 0))
         self.make_button(search_frame, "전체", GRAY, self.on_show_all).pack(side="left", padx=(8, 0))
-        self.btn_stats = self.make_button(search_frame, "통계 보기", ACCENT, self.show_stats)
-        self.btn_stats.pack(side="left", padx=(16, 0))
         tk.Label(box, text="이름 · 식별번호 · 상태로 검색", bg=CARD, fg=SUBTEXT,
                  font=("맑은 고딕", 9)).pack(anchor="w", pady=(0, 12))
 
@@ -225,7 +259,7 @@ class HealthGUI:
                         foreground=TEXT, borderwidth=0)
         style.configure("Treeview.Heading", font=FONT_BOLD, background=GRAY, foreground=TEXT,
                         relief="flat", padding=(0, 8))
-        style.map("Treeview", background=[("selected", SELECTED)], foreground=[("selected", ACCENT)])
+        style.map("Treeview", background=[("selected", SELECTED_ROW)], foreground=[("selected", TEXT)])
 
         table_frame = tk.Frame(box, bg=CARD)
         table_frame.pack(fill="both", expand=True)
@@ -245,16 +279,19 @@ class HealthGUI:
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
     def make_stat_card(self, parent, caption):
-        """통계 카드 1개(작은 제목 + 큰 숫자)를 만들고, 숫자를 보여 줄 Label 을 반환한다."""
+        """통계 카드 1개(작은 제목 + 큰 숫자 + 작은 설명)를 만든다.
+        반환: (큰 숫자 Label, 작은 설명 Label) — 작은 설명에는 표준편차를 보여 준다."""
         card = tk.Frame(parent, bg=STRIPE, padx=16, pady=12)
         card.pack(side="left", fill="both", expand=True, padx=4)
         tk.Label(card, text=caption, bg=STRIPE, fg=SUBTEXT, font=FONT).pack(anchor="w")
         value_label = tk.Label(card, text="-", bg=STRIPE, fg=TEXT, font=FONT_BIG, width=8, anchor="w")
         value_label.pack(anchor="w")
-        return value_label
+        sub_label = tk.Label(card, text="", bg=STRIPE, fg=SUBTEXT, font=("맑은 고딕", 9))
+        sub_label.pack(anchor="w")
+        return value_label, sub_label
 
     def build_stats(self):
-        """통계 화면을 준비한다. [통계 보기]를 누르면 기록 화면 대신 표시한다."""
+        """통계 화면을 준비한다. 맨 위 [통계] 탭을 누르면 기록 화면 대신 표시한다."""
         self.stats_page = tk.Frame(self.root, bg=CARD, highlightthickness=1,
                                    highlightbackground=LINE, highlightcolor=LINE,
                                    padx=20, pady=16)
@@ -262,15 +299,15 @@ class HealthGUI:
         heading = tk.Frame(self.stats_page, bg=CARD)
         heading.pack(fill="x", pady=(0, 16))
         tk.Label(heading, text="전체 기록 통계", bg=CARD, fg=TEXT, font=FONT_TITLE).pack(side="left")
-        self.btn_records = self.make_button(heading, "기록으로 돌아가기", GRAY, self.show_records)
-        self.btn_records.pack(side="right")
+        tk.Label(heading, text="검색과 관계없이 등록된 전체 기록으로 계산합니다.", bg=CARD, fg=SUBTEXT,
+                 font=("맑은 고딕", 9)).pack(side="left", padx=(12, 0))
 
         cards = tk.Frame(self.stats_page, bg=CARD)
         cards.pack(fill="x", pady=(0, 20))
-        self.lbl_count = self.make_stat_card(cards, "총 인원")
-        self.lbl_height = self.make_stat_card(cards, "평균 키")
-        self.lbl_weight = self.make_stat_card(cards, "평균 몸무게")
-        self.lbl_bmi = self.make_stat_card(cards, "평균 BMI")
+        self.lbl_count, self.lbl_count_sub = self.make_stat_card(cards, "총 인원")
+        self.lbl_height, self.lbl_height_std = self.make_stat_card(cards, "평균 키")
+        self.lbl_weight, self.lbl_weight_std = self.make_stat_card(cards, "평균 몸무게")
+        self.lbl_bmi, self.lbl_bmi_std = self.make_stat_card(cards, "평균 BMI")
 
         tk.Label(self.stats_page, text="BMI 상태별 인원", bg=CARD, fg=TEXT,
                  font=FONT_BOLD).pack(anchor="w", padx=4)
@@ -278,23 +315,47 @@ class HealthGUI:
         self.canvas.pack(expand=True)
 
     def show_stats(self):
-        """통계 화면으로 전환한다."""
+        """[통계] 탭: 통계 화면으로 전환하고 탭 색을 바꾼다."""
         self.records_page.grid_remove()
         self.stats_page.grid(row=1, column=0, sticky="nsew", padx=24, pady=16)
-        self.btn_records.focus_set()
+        self.paint_button(self.btn_records, GRAY)
+        self.paint_button(self.btn_stats, ACCENT)
 
     def show_records(self):
-        """검색과 입력 상태를 그대로 둔 채 기록 화면으로 돌아간다."""
+        """[기록] 탭: 검색과 입력 상태를 그대로 둔 채 기록 화면으로 돌아간다."""
         self.stats_page.grid_remove()
         self.records_page.grid()
-        self.btn_stats.focus_set()
+        self.paint_button(self.btn_records, ACCENT)
+        self.paint_button(self.btn_stats, GRAY)
+
+    def build_status_bar(self):
+        """맨 아래 상태 표시줄: 왼쪽에는 기록 건수(검색 결과), 오른쪽에는 저장 여부를 보여 준다."""
+        bar = tk.Frame(self.root, bg=CARD, padx=24, pady=6)
+        bar.grid(row=2, column=0, sticky="we")
+        self.lbl_status = tk.Label(bar, text="", bg=CARD, fg=SUBTEXT, font=FONT)
+        self.lbl_status.pack(side="left")
+        self.lbl_saved = tk.Label(bar, text="", bg=CARD, fg=SUBTEXT, font=FONT_BOLD)
+        self.lbl_saved.pack(side="right")
+
+    def set_changed(self, changed):
+        """저장하지 않은 변경이 있는지 기억하고, 상태 표시줄과 [저장] 버튼 색으로 알려 준다.
+        등록·수정·삭제·일괄 등록 뒤에는 True, 불러오기·저장 뒤에는 False 로 부른다."""
+        self.changed = changed
+        if changed:
+            self.lbl_saved.config(text="저장하지 않은 변경이 있습니다 → [저장]", fg=DANGER)
+            self.paint_button(self.btn_save, ACCENT)
+        else:
+            self.lbl_saved.config(text="변경 사항 없음", fg=SUBTEXT)
+            self.paint_button(self.btn_save, GRAY)
 
     # ---------- 표 갱신 ----------
     def refresh(self, records=None):
         """표를 records 로 다시 채우고 통계를 갱신한다. records 가 None 이면 전체 목록.
         등록·수정·삭제·불러오기 후에는 항상 이 메소드 하나만 부른다."""
+        searching = True            # records 를 넘겨받았으면 검색 결과를 보여 주는 중
         if records is None:
             records = self.manager.get_all()
+            searching = False
 
         # 기존 행을 모두 지운다 (안 지우면 같은 사람이 계속 쌓인다)
         for row_id in self.tree.get_children():
@@ -313,6 +374,17 @@ class HealthGUI:
             # iid 에 식별번호를 넣어 두면 tree.selection()[0] 이 바로 식별번호가 된다
             self.tree.insert("", "end", iid=record.id, values=values, tags=(tag,))
             index += 1
+
+        # 상태 표시줄에 건수를 보여 준다 (표가 비어 있을 때는 무엇을 하면 되는지도 알려 준다)
+        total = len(self.manager.get_all())
+        if total == 0:
+            self.lbl_status.config(text="등록된 기록이 없습니다. 왼쪽에서 등록하거나 [불러오기]를 누르세요.")
+        elif searching == False:
+            self.lbl_status.config(text=f"전체 {total}건")
+        elif len(records) == 0:
+            self.lbl_status.config(text=f"검색 결과가 없습니다. [전체]를 누르면 {total}건이 모두 보입니다.")
+        else:
+            self.lbl_status.config(text=f"검색 결과 {len(records)}건 / 전체 {total}건")
 
         self.update_stats()
 
@@ -373,8 +445,16 @@ class HealthGUI:
             return
 
         messagebox.showinfo("등록 완료", f"{record.name} 님을 등록했습니다. (식별번호: {record.id})")
+        self.set_changed(True)
         self.clear_form()
         self.refresh()
+
+    def on_form_enter(self, event=None):
+        """폼의 입력칸에서 엔터: 신규 모드면 등록, 선택 모드면 수정."""
+        if self.selected_id is None:
+            self.on_add()
+        else:
+            self.on_update()
 
     def set_entry(self, entry, value):
         """입력칸 entry 의 글자를 지우고 value 로 바꾼다."""
@@ -396,11 +476,13 @@ class HealthGUI:
 
         # 표의 선택 표시도 푼다
         self.tree.selection_remove(self.tree.selection())
+        self.entry_name.focus_set()     # 바로 이름부터 입력할 수 있게 커서를 옮긴다
 
     # ---------- 행 선택 → 폼 (신규/선택 모드) ----------
     def set_mode(self, mode):
         """mode == "new": 모두 입력 가능, [등록]만 켬 / 그 외("selected"): 이름·생년·성별 잠금, [수정][삭제]만 켬.
-        키·몸무게 칸은 수정해야 하므로 항상 입력 가능하다. 꺼진 버튼은 회색으로 바꾼다."""
+        키·몸무게 칸은 수정해야 하므로 항상 입력 가능하다. 꺼진 버튼은 회색으로 바꾼다.
+        폼 위의 모드 표시와 아래 안내 문장도 함께 바꾼다."""
         if mode == "new":
             self.entry_name.config(state="normal")
             self.entry_birth.config(state="normal")
@@ -409,6 +491,8 @@ class HealthGUI:
             self.btn_add.config(state="normal", bg=ACCENT)
             self.btn_update.config(state="disabled", bg=LINE)
             self.btn_delete.config(state="disabled", bg=LINE)
+            self.lbl_mode.config(text="신규 등록")
+            self.lbl_hint.config(text="표에서 행을 클릭하면\n수정·삭제할 수 있습니다.")
         else:
             self.entry_name.config(state="readonly")
             self.entry_birth.config(state="readonly")
@@ -417,6 +501,8 @@ class HealthGUI:
             self.btn_add.config(state="disabled", bg=LINE)
             self.btn_update.config(state="normal", bg=ACCENT)
             self.btn_delete.config(state="normal", bg=GRAY)
+            self.lbl_mode.config(text="수정 모드")
+            self.lbl_hint.config(text="키·몸무게만 수정할 수 있습니다.\n[새로 입력]을 누르면 등록으로 돌아갑니다.")
 
     def fill_form(self, record):
         """record(HealthRecord) 의 값을 폼에 채운다. on_select 와 on_update 가 부른다."""
@@ -467,6 +553,7 @@ class HealthGUI:
         self.tree.selection_set(self.selected_id)   # 표를 새로 그리면 선택 표시가 풀려서 다시 선택
         self.fill_form(record)
         self.set_mode("selected")
+        self.set_changed(True)
         messagebox.showinfo("수정 완료", f"BMI {record.bmi:.2f} · {record.status} 로 다시 계산했습니다.")
 
     def on_delete(self):
@@ -482,6 +569,7 @@ class HealthGUI:
 
         self.manager.delete_record(self.selected_id)
         messagebox.showinfo("삭제 완료", "삭제되었습니다.")
+        self.set_changed(True)
         self.clear_form()
         self.refresh()
 
@@ -501,13 +589,17 @@ class HealthGUI:
 
     # ---------- 통계 · 차트 ----------
     def update_stats(self):
-        """모듈2 get_statistics() 결과로 통계 카드 4개와 차트를 갱신. (검색 중이어도 항상 전체 기준)"""
+        """모듈2 get_statistics() 결과(인원·평균·표준편차·상태별 인원)로 통계 카드와 차트를 갱신.
+        검색 중이어도 항상 전체 기준이다."""
         stats = self.manager.get_statistics()
         if stats is None:       # 0명일 때
             self.lbl_count.config(text="0명")
             self.lbl_height.config(text="-")
             self.lbl_weight.config(text="-")
             self.lbl_bmi.config(text="-")
+            self.lbl_height_std.config(text="")
+            self.lbl_weight_std.config(text="")
+            self.lbl_bmi_std.config(text="")
             self.draw_chart({})
             return
 
@@ -515,17 +607,22 @@ class HealthGUI:
         self.lbl_height.config(text=f"{stats['height_mean']:.1f} cm")
         self.lbl_weight.config(text=f"{stats['weight_mean']:.1f} kg")
         self.lbl_bmi.config(text=f"{stats['bmi_mean']:.2f}")
+        self.lbl_height_std.config(text=f"표준편차 {stats['height_std']:.1f}")
+        self.lbl_weight_std.config(text=f"표준편차 {stats['weight_std']:.1f}")
+        self.lbl_bmi_std.config(text=f"표준편차 {stats['bmi_std']:.2f}")
         self.draw_chart(stats["status_count"])
 
     def draw_chart(self, status_count):
-        """Canvas 에 비만도별 인원 막대 4개. status_count 예: {"정상": 3, "비만": 1}"""
+        """Canvas 에 비만도별 인원 막대 4개 (막대 위에 인원수와 비율). status_count 예: {"정상": 3, "비만": 1}"""
         self.canvas.delete("all")       # 안 지우면 막대가 겹겹이 쌓인다
 
-        # 가장 많은 인원수 (막대 높이의 기준, 0 으로 나누지 않도록 최소 1)
+        # 가장 많은 인원수 (막대 높이의 기준, 0 으로 나누지 않도록 최소 1) 와 전체 인원수 (비율 계산용)
         max_count = 1
+        total = 0
         for count in status_count.values():
             if count > max_count:
                 max_count = count
+            total += count
 
         bottom = 224                    # 막대 바닥의 y 좌표 (Canvas 는 아래로 갈수록 y 가 커진다)
         self.canvas.create_line(48, bottom, 672, bottom, fill=LINE)
@@ -537,18 +634,30 @@ class HealthGUI:
             top = bottom - count / max_count * 180
             self.canvas.create_rectangle(center - 34, top, center + 34, bottom,
                                          fill=STATUS_COLORS[status], outline="")
-            self.canvas.create_text(center, top - 16, text=str(count), font=FONT_BOLD, fill=TEXT)
+            if total == 0:
+                percent = 0
+            else:
+                percent = count / total * 100
+            self.canvas.create_text(center, top - 16, text=f"{count}명 ({percent:.0f}%)",
+                                    font=FONT_BOLD, fill=TEXT)
             self.canvas.create_text(center, bottom + 20, text=status, font=FONT, fill=SUBTEXT)
             index += 1
 
     # ---------- 파일 불러오기 · 저장 ----------
     def on_load(self, quiet=False):
         """[불러오기] 버튼 / 프로그램 시작: 고른 형식의 파일을 HealthRecord 목록으로 바꿔 manager 에 넘긴다.
-        quiet=True 면 성공 알림을 띄우지 않는다 (시작할 때용). 실패해도 기존 목록은 그대로 둔다."""
+        quiet=True 면 성공 알림을 띄우지 않는다 (시작할 때용). 실패해도 기존 목록은 그대로 둔다.
+        저장하지 않은 변경이 있으면 지금 목록이 사라지므로 먼저 물어본다."""
+        if self.changed:
+            answer = messagebox.askyesno("불러오기", "저장하지 않은 변경이 있습니다.\n"
+                                         "불러오면 지금 목록이 파일 내용으로 바뀝니다. 계속할까요?")
+            if answer == False:
+                return
+
         fmt = self.format_var.get()
         records = []
+        json_data, csv_data, txt_data, pkl_data = self.db.load_data()    # 모듈1: 읽지 못한 파일은 빈 리스트
         try:
-            json_data, csv_data, txt_data, pkl_data = self.db.load_data()
             if fmt == "JSON":
                 for data in json_data:
                     records.append(dict_to_record(data))
@@ -561,11 +670,17 @@ class HealthGUI:
             else:
                 for data in pkl_data:
                     records.append(dict_to_record(data))
-        except Exception as e:
-            messagebox.showwarning("불러오기 실패", f"{fmt} 파일을 읽지 못했습니다.\n{e}")
+        except Exception as e:      # 파일은 읽었지만 기록 모양이 맞지 않을 때 (예: TXT 한 줄의 값 개수가 다름)
+            messagebox.showwarning("불러오기 실패", f"{fmt} 파일의 내용이 올바른 형식이 아닙니다.\n{e}")
+            return
+
+        if len(records) == 0:       # 파일이 없거나, 손상되었거나, 비어 있음 → 지금 목록은 그대로 둔다
+            messagebox.showwarning("불러오기 실패", f"{fmt} 파일이 없거나, 손상되었거나, 비어 있어서\n"
+                                   "불러올 기록이 없습니다. 지금 목록은 그대로 둡니다.")
             return
 
         self.manager.set_records(records)
+        self.set_changed(False)     # 방금 파일에서 읽었으므로 파일과 같은 상태
         self.clear_form()
         self.refresh()
         if quiet == False:
@@ -584,12 +699,13 @@ class HealthGUI:
 
         dict_list = self.manager.to_dict_list()
         txt_rows = [list(map(str, d.values())) for d in dict_list]     # 모듈2 menu_save 와 같은 방식
-        try:
-            self.db.save_data(dict_list, dict_list, txt_rows, dict_list)
-        except Exception as e:
-            messagebox.showerror("파일 저장 실패", str(e))
+        saved = self.db.save_data(dict_list, dict_list, txt_rows, dict_list)   # 모듈1: 성공 True / 실패 False
+        if saved == False:
+            messagebox.showerror("파일 저장 실패", "파일을 저장하지 못했습니다.\n"
+                                 "파일이 엑셀 같은 다른 프로그램에서 열려 있거나 쓰기 권한이 없는지 확인하세요.")
             return
 
+        self.set_changed(False)
         messagebox.showinfo("파일 저장 성공", "JSON, CSV, TXT, PKL 4가지 형식으로 저장했습니다.")
 
     # ---------- CSV 일괄 등록 ----------
@@ -630,6 +746,8 @@ class HealthGUI:
             else:
                 added += 1
 
+        if added > 0:
+            self.set_changed(True)
         self.refresh()
         messagebox.showinfo("CSV 일괄 등록 완료", f"{added}건 추가, {skipped}건 제외")
 

@@ -14,6 +14,9 @@
 #      (2) "현재상황 업데이트해" 등 → 진행 상황 점검·코드 검토만 받음
 #      (3) "로직에 불필요한 주석이 너무 많아서 읽기 힘들어 ai사용했다는거 맨처음에 밝히고
 #           코드 중간중간 미션처럼 만들어둔 주석을 최소화하고싶어"
+#      (4) "확인 필요한 1번 파일 없거나 손상시 예외처리 그냥 추가하는건 어때?"
+#          "진행방식 1번으로해 작성, 테스트, 적용까지하면 내가 main에병합할게"
+#          → AI가 menu_load / menu_save 를 모듈1의 새 예외 처리 방식(빈 리스트, True/False)에 맞춰 수정 (2026-11-26)
 #  - 사용한 사람 : 권순욱 (202611814)
 #  - 날짜        : 2026-11-23
 # ===========================================================================
@@ -259,13 +262,17 @@ def menu_edit_delete(manager):
 
 def menu_load(manager, db):
     """메뉴 6: 모듈1(HealthDB)로 파일을 읽어 HealthRecord 목록으로 바꿔 manager 에 넘긴다."""
+    json_data, csv_data, txt_data, pkl_data = db.load_data()    # 읽지 못한 파일은 빈 리스트로 온다
+    if len(json_data) == 0:
+        print("불러오기 실패: JSON 파일이 없거나, 손상되었거나, 비어 있습니다.")
+        return
     try:
-        json_data, csv_data, txt_data, pkl_data = db.load_data()
         records = [dict_to_record(d) for d in json_data]
-        manager.set_records(records)
-        print(f"{len(records)}건 불러왔습니다.")
-    except Exception as e:
+    except Exception as e:      # 파일은 읽었지만 기록 모양이 맞지 않을 때
         print(f"불러오기 실패: {e}")
+        return
+    manager.set_records(records)
+    print(f"{len(records)}건 불러왔습니다.")
 
 def menu_save(manager, db):
     """메뉴 7: manager 의 데이터를 모듈1(HealthDB)로 4가지 파일에 저장한다."""
@@ -274,11 +281,10 @@ def menu_save(manager, db):
         return
     dict_list = manager.to_dict_list()
     txt_rows = [list(map(str, d.values())) for d in dict_list]
-    try:
-        db.save_data(dict_list, dict_list, txt_rows, dict_list)
+    if db.save_data(dict_list, dict_list, txt_rows, dict_list):     # 성공 True / 실패 False
         print("저장 완료.")
-    except Exception as e:
-        print(f"저장 실패: {e}")
+    else:
+        print("저장 실패: 파일이 다른 프로그램에서 열려 있거나 쓰기 권한이 없는지 확인하세요.")
 
 def main():
     """콘솔 프로그램 시작점: 파일 읽기 → 메뉴 반복."""
